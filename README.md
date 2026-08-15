@@ -1,4 +1,6 @@
 # Intro
+To download click [here](https://github.com/MinhHoag/CustomFolder/releases/tag/Release)
+
 This is a Playnite extension that gives you ability to create a custom per-game folder related path to your playnite directory by using built in {PlayniteDir} function so it can be able to use on both normal version and portable version of playnite. It was originally create to serve personal purpose of saving IDM export and media related to a game without doing 200 extra steps to create a folder and forgot where it was 2 days later.
 
 The given setting page that can be access via Add-ons/ Extension settings/ Generic/ CustomFolder should contains:
