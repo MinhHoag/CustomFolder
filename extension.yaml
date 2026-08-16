@@ -6,3 +6,6 @@ Module: CustomFolder.dll
 Type: GenericPlugin
 Icon: icon.png
 Description: Creates and opens a modified folder in Playnite directory per-game, preset directory is "{PlayniteDir}/CustomFolder/[Game name]"
+Links:
+  - Name: GitHub
+    Url: https://github.com/MinhHoag/CustomFolder
