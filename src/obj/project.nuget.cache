@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "dgSpecHash": "MyA2Rl3QZdO5ri7hyGAAKX1GFR1lILA/Ab1DVW0lNeSDrDICQ30HCNEQBdXQ4Guul20Ddv61LM5V8ySAa0jFWw==",
+  "success": true,
+  "projectFilePath": "C:\\Users\\dhhmi\\Personal\\Downloads\\CustomFolder_Playnite_v1.4.2_source\\CustomFolder_v1_4_2\\src\\CustomFolder.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\dhhmi\\.nuget\\packages\\microsoft.netframework.referenceassemblies\\1.0.3\\microsoft.netframework.referenceassemblies.1.0.3.nupkg.sha512",
+    "C:\\Users\\dhhmi\\.nuget\\packages\\microsoft.netframework.referenceassemblies.net462\\1.0.3\\microsoft.netframework.referenceassemblies.net462.1.0.3.nupkg.sha512",
+    "C:\\Users\\dhhmi\\.nuget\\packages\\playnitesdk\\6.16.0\\playnitesdk.6.16.0.nupkg.sha512"
+  ],
+  "logs": []
+}
