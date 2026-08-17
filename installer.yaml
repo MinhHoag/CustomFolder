@@ -4,17 +4,10 @@ Packages:
   - Version: 1.1.0
     RequiredApiVersion: 6.16.0
     ReleaseDate: 2026-08-16
-    PackageUrl: https://github.com/MinhHoag/CustomFolder/releases/download/Release/CustomFolder_7b4a1b34-6c57-4ef6-9d35-7e4e64b7c0a1_1_1_0.pext
+    PackageUrl: https://github.com/MinhHoag/CustomFolder/releases/download/ver1.1.0/CustomFolder_7b4a1b34-6c57-4ef6-9d35-7e4e64b7c0a1_1_1_0.pext
     Changelog:
       - Added preset options that can be easily modified for organize purposes
       - Improve safety feature, now the parent preset is started with CustomFolder so you won't accidentally merge with playnite existed folder
       - Saved previous preset after every update, if first install there are 3 preset that you can modified
       - 'Remove" show button in detail view (still exist but in developer mode since it is useless for most users)
       - Added developer option for personal use that required code to get in, it is useless for almost everyone but the creator.
-  - Version: 1.0.0
-    RequiredApiVersion: 6.16.0
-    ReleaseDate: 2026-08-15
-    Changelog:
-      - Initial release.
-      - Added per-game folder creation.
-      - Added configurable folder location.
