@@ -11,3 +11,11 @@ Packages:
       - Saved previous preset after every update, if first install there are 3 preset that you can modified
       - 'Remove" show button in detail view (still exist but in developer mode since it is useless for most users)
       - Added developer option for personal use that required code to get in, it is useless for almost everyone but the creator.
+  - Version: 1.0.1
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-08-15
+    PackageUrl: https://github.com/MinhHoag/CustomFolder/releases/download/ver1.0.1/CustomFolder_7b4a1b34-6c57-4ef6-9d35-7e4e64b7c0a1_1_0_1.pext
+    Changelog:
+      - Initial release.
+      - Added per-game folder creation.
+      - Added configurable folder location.
