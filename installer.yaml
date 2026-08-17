@@ -9,7 +9,7 @@ Packages:
       - Added preset options that can be easily modified for organize purposes
       - Improve safety feature, now the parent preset is started with CustomFolder so you won't accidentally merge with playnite existed folder
       - Saved previous preset after every update, if first install there are 3 preset that you can modified
-      - 'Remove" show button in detail view (still exist but in developer mode since it is useless for most users)
+      - Remove show button in detail view (still exist but in developer mode since it is useless for most users)
       - Added developer option for personal use that required code to get in, it is useless for almost everyone but the creator.
   - Version: 1.0.1
     RequiredApiVersion: 6.16.0
