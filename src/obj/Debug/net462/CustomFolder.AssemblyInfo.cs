@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("CustomFolder")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6bb09ce191d0f9f82f20ecf221f9fb32f7d16124")]
 [assembly: System.Reflection.AssemblyProductAttribute("CustomFolder")]
 [assembly: System.Reflection.AssemblyTitleAttribute("CustomFolder")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

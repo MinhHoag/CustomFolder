@@ -397,11 +397,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\dhhmi\\Personal\\Downloads\\CustomFolder_Playnite_v1.4.2_source\\CustomFolder_v1_4_2\\src\\CustomFolder.csproj",
+      "projectUniqueName": "C:\\Users\\dhhmi\\Personal\\Coding\\CustomFolder\\src\\CustomFolder.csproj",
       "projectName": "CustomFolder",
-      "projectPath": "C:\\Users\\dhhmi\\Personal\\Downloads\\CustomFolder_Playnite_v1.4.2_source\\CustomFolder_v1_4_2\\src\\CustomFolder.csproj",
+      "projectPath": "C:\\Users\\dhhmi\\Personal\\Coding\\CustomFolder\\src\\CustomFolder.csproj",
       "packagesPath": "C:\\Users\\dhhmi\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\dhhmi\\Personal\\Downloads\\CustomFolder_Playnite_v1.4.2_source\\CustomFolder_v1_4_2\\src\\obj\\",
+      "outputPath": "C:\\Users\\dhhmi\\Personal\\Coding\\CustomFolder\\src\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"

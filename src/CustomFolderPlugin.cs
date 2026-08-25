@@ -156,7 +156,7 @@ namespace CustomFolder
             try
             {
                 var folder = IOPath.Combine(
-                    ResolveRoot(Settings.ParentDirectory),
+                    ResolveCurrentRoot(Settings),
                     MakeSafeFolderName(preset),
                     MakeSafeFolderName(gameName));
 
@@ -175,7 +175,7 @@ namespace CustomFolder
         {
             try
             {
-                var folder = ResolveRoot(Settings.ParentDirectory);
+                var folder = ResolveCurrentRoot(Settings);
                 Directory.CreateDirectory(folder);
                 OpenExplorer(folder);
             }
@@ -197,32 +197,68 @@ namespace CustomFolder
             });
         }
 
-        // Base layout:
-        // {PlayniteDir}\CustomFolder\{Relative Root}\{Preset}\{GameName}
-        //
-        // Relative Root = ""       -> CustomFolder\Preset\Game
-        // Relative Root = Personal -> CustomFolder\Personal\Preset\Game
-        // Relative Root = ..\      -> PlayniteDir\Preset\Game
-        // Relative Root = ..\..\   -> parent-of-PlayniteDir\Preset\Game
+        // The user selects the PARENT directory. CustomFolder is always appended.
+        // Relative: {PlayniteDir}\{ParentDirectory}\CustomFolder
+        // Absolute: {AbsoluteParentDirectory}\CustomFolder
         internal string ResolveRoot(string configuredRoot)
         {
-            var baseFolder = IOPath.Combine(GetPlayniteDirectory(), "CustomFolder");
             var relative = GetRootPart(configuredRoot);
+            var parent = string.IsNullOrWhiteSpace(relative)
+                ? GetPlayniteDirectory()
+                : IOPath.GetFullPath(IOPath.Combine(GetPlayniteDirectory(), relative));
 
-            if (string.IsNullOrWhiteSpace(relative))
-            {
-                return IOPath.GetFullPath(baseFolder);
-            }
-
-            return IOPath.GetFullPath(IOPath.Combine(baseFolder, relative));
+            return IOPath.GetFullPath(IOPath.Combine(parent, "CustomFolder"));
         }
 
-        internal string ResolveExamplePath(string configuredRoot, string preset)
+        internal string ResolveAbsoluteRoot(string absoluteParent)
+        {
+            var value = (absoluteParent ?? string.Empty).Trim().Trim('"');
+            value = value.Replace('/', '\\');
+
+            if (string.IsNullOrWhiteSpace(value))
+                throw new ArgumentException("Choose an absolute parent directory.");
+
+            if (!IOPath.IsPathRooted(value))
+                throw new ArgumentException("Absolute path must include a drive path.");
+
+            if (value.Contains("\\\\"))
+                throw new ArgumentException("Directory cannot contain double backslashes.");
+
+            var root = IOPath.GetPathRoot(value);
+            if (string.IsNullOrWhiteSpace(root))
+                throw new ArgumentException("Absolute path has an invalid root.");
+
+            var remainder = value.Substring(root.Length).TrimEnd('\\');
+
+            if (!string.IsNullOrEmpty(remainder))
+            {
+                var parts = remainder.Split(new[] { '\\' }, StringSplitOptions.None);
+
+                foreach (var part in parts)
+                {
+                    if (part.Length == 0)
+                        throw new ArgumentException("Directory contains an empty folder segment.");
+
+                    ValidateFolderSegment(part);
+                }
+            }
+
+            return IOPath.GetFullPath(IOPath.Combine(value.TrimEnd('\\'), "CustomFolder"));
+        }
+
+        internal string ResolveCurrentRoot(CustomFolderSettings settings)
+        {
+            return settings != null && settings.UseAbsolutePath
+                ? ResolveAbsoluteRoot(settings.AbsoluteParentDirectory)
+                : ResolveRoot(settings?.ParentDirectory);
+        }
+
+        internal string ResolveExamplePath(CustomFolderSettings settings, string preset)
         {
             try
             {
                 return IOPath.Combine(
-                    ResolveRoot(configuredRoot),
+                    ResolveCurrentRoot(settings),
                     MakeSafeFolderName(string.IsNullOrWhiteSpace(preset) ? "Downloads" : preset),
                     "Ghost of Tsushima");
             }
@@ -237,55 +273,73 @@ namespace CustomFolder
             var value = (configuredRoot ?? string.Empty).Trim();
             value = value.Replace('/', '\\');
 
-            // Backward compatibility with older saved settings.
             if (value.StartsWith(PlayniteToken, StringComparison.OrdinalIgnoreCase))
             {
                 value = value.Substring(PlayniteToken.Length).TrimStart('\\');
 
                 if (string.IsNullOrWhiteSpace(value))
-                {
                     return string.Empty;
-                }
 
-                // If an older setting included CustomFolder explicitly, strip it.
                 if (value.StartsWith("CustomFolder\\", StringComparison.OrdinalIgnoreCase))
-                {
                     value = value.Substring("CustomFolder\\".Length);
-                }
                 else if (string.Equals(value, "CustomFolder", StringComparison.OrdinalIgnoreCase))
-                {
                     return string.Empty;
-                }
             }
 
-            while (value.Contains("\\\\"))
-            {
-                value = value.Replace("\\\\", "\\");
-            }
+            if (value.Contains("\\\\"))
+                throw new ArgumentException("Directory cannot contain double backslashes.");
 
-            value = value.Trim('\\');
+            value = value.TrimEnd('\\');
+
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
 
             if (value.Length >= 2 && char.IsLetter(value[0]) && value[1] == ':')
-            {
-                throw new ArgumentException("Use a relative path, not a drive path.");
-            }
+                throw new ArgumentException("Use Absolute path mode for drive paths.");
 
-            var parts = value.Split(new[] { '\\' }, StringSplitOptions.RemoveEmptyEntries);
+            var parts = value.Split(new[] { '\\' }, StringSplitOptions.None);
 
             foreach (var part in parts)
             {
-                if (part == "." || part == "..")
-                {
-                    continue;
-                }
+                if (part.Length == 0)
+                    throw new ArgumentException("Directory contains an empty folder segment.");
 
-                if (part.IndexOfAny(IOPath.GetInvalidFileNameChars()) >= 0)
-                {
-                    throw new ArgumentException("Invalid folder name: " + part);
-                }
+                if (part == "." || part == "..")
+                    continue;
+
+                ValidateFolderSegment(part);
             }
 
             return string.Join("\\", parts);
+        }
+
+        internal static void ValidateFolderSegment(string part)
+        {
+            if (string.IsNullOrEmpty(part))
+                throw new ArgumentException("Folder name cannot be empty.");
+
+            if (char.IsWhiteSpace(part[0]))
+                throw new ArgumentException("Folder names cannot start with a space.");
+
+            if (part.EndsWith(" ", StringComparison.Ordinal))
+                throw new ArgumentException("Folder names cannot end with a space.");
+
+            if (part.EndsWith(".", StringComparison.Ordinal))
+                throw new ArgumentException("Folder names cannot end with a period.");
+
+            if (part.IndexOfAny(IOPath.GetInvalidFileNameChars()) >= 0)
+                throw new ArgumentException("Folder name contains invalid Windows characters: " + part);
+
+            var baseName = part.Split('.')[0];
+            var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "CON", "PRN", "AUX", "NUL",
+                "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+                "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+            };
+
+            if (reserved.Contains(baseName))
+                throw new ArgumentException("Folder name is reserved by Windows: " + part);
         }
 
         internal string NormalizeParentDirectoryForDisplay(string configuredRoot)
@@ -293,28 +347,21 @@ namespace CustomFolder
             var value = (configuredRoot ?? string.Empty).Trim();
             value = value.Replace('/', '\\');
 
-            // Migrate the old full-token style into the new suffix-only style.
             if (value.StartsWith(PlayniteToken, StringComparison.OrdinalIgnoreCase))
             {
                 value = value.Substring(PlayniteToken.Length).TrimStart('\\');
 
                 if (value.StartsWith("CustomFolder\\", StringComparison.OrdinalIgnoreCase))
-                {
                     value = value.Substring("CustomFolder\\".Length);
-                }
                 else if (string.Equals(value, "CustomFolder", StringComparison.OrdinalIgnoreCase))
-                {
                     value = string.Empty;
-                }
             }
 
-            while (value.Contains("\\\\"))
-            {
-                value = value.Replace("\\\\", "\\");
-            }
+            var displayValue = value.TrimStart('\\');
 
-            // A trailing slash isn't needed because Path.Combine inserts one.
-            return value.Trim('\\');
+            // Validate without changing whether the user typed the final slash.
+            GetRootPart(displayValue);
+            return displayValue;
         }
 
         internal string GetPlayniteDirectory()
@@ -437,6 +484,101 @@ namespace CustomFolder
             }
         }
 
+        internal bool IsSamePath(string first, string second)
+        {
+            if (string.IsNullOrWhiteSpace(first) || string.IsNullOrWhiteSpace(second))
+                return false;
+
+            var a = IOPath.GetFullPath(first).TrimEnd('\\', '/');
+            var b = IOPath.GetFullPath(second).TrimEnd('\\', '/');
+            return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal bool IsInsidePlayniteDirectory(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+
+            var playnite = IOPath.GetFullPath(GetPlayniteDirectory()).TrimEnd('\\', '/');
+            var target = IOPath.GetFullPath(path).TrimEnd('\\', '/');
+
+            return string.Equals(playnite, target, StringComparison.OrdinalIgnoreCase) ||
+                   target.StartsWith(playnite + "\\", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // User may select either CustomFolder itself or its parent.
+        internal string DetectCustomFolder(string selectedPath)
+        {
+            if (string.IsNullOrWhiteSpace(selectedPath)) return null;
+
+            var selected = IOPath.GetFullPath(selectedPath).TrimEnd('\\', '/');
+
+            if (Directory.Exists(selected) &&
+                string.Equals(IOPath.GetFileName(selected), "CustomFolder",
+                    StringComparison.OrdinalIgnoreCase))
+                return selected;
+
+            var child = IOPath.Combine(selected, "CustomFolder");
+            return Directory.Exists(child) ? IOPath.GetFullPath(child) : null;
+        }
+
+        internal MigrationResult MigrateFolder(string source, string destination)
+        {
+            source = IOPath.GetFullPath(source);
+            destination = IOPath.GetFullPath(destination);
+
+            if (!Directory.Exists(source))
+                return new MigrationResult { SourceFound = false };
+
+            if (IsSamePath(source, destination))
+                return new MigrationResult { SourceFound = true, SameLocation = true, Destination = destination };
+
+            var result = new MigrationResult { SourceFound = true, Destination = destination };
+            Directory.CreateDirectory(destination);
+            MergeDirectory(source, destination, result);
+
+            if (Directory.Exists(source) && !Directory.EnumerateFileSystemEntries(source).Any())
+                Directory.Delete(source);
+
+            return result;
+        }
+
+        private static void MergeDirectory(string source, string destination, MigrationResult result)
+        {
+            Directory.CreateDirectory(destination);
+
+            foreach (var file in Directory.GetFiles(source))
+            {
+                var target = IOPath.Combine(destination, IOPath.GetFileName(file));
+
+                if (File.Exists(target))
+                {
+                    result.SkippedFiles++;
+                    continue;
+                }
+
+                try
+                {
+                    File.Move(file, target);
+                }
+                catch (IOException)
+                {
+                    File.Copy(file, target, false);
+                    File.Delete(file);
+                }
+
+                result.MovedFiles++;
+            }
+
+            foreach (var directory in Directory.GetDirectories(source))
+            {
+                var target = IOPath.Combine(destination, IOPath.GetFileName(directory));
+                MergeDirectory(directory, target, result);
+
+                if (!Directory.EnumerateFileSystemEntries(directory).Any())
+                    Directory.Delete(directory);
+            }
+        }
+
         internal static string MakeSafeFolderName(string name)
         {
             if (string.IsNullOrWhiteSpace(name)) return "Unnamed";
@@ -462,11 +604,28 @@ namespace CustomFolder
         }
     }
 
+    public class MigrationResult
+    {
+        public bool SourceFound { get; set; }
+        public bool SameLocation { get; set; }
+        public int MovedFiles { get; set; }
+        public int SkippedFiles { get; set; }
+        public string Destination { get; set; }
+    }
+
     public class CustomFolderSettings : ObservableObject, ISettings
     {
         private readonly CustomFolderPlugin plugin;
 
-        private string parentDirectory = string.Empty;
+        private const int CurrentPathSettingsVersion = 2;
+
+        private int pathSettingsVersion = CurrentPathSettingsVersion;
+        private string parentDirectory = "..\\";
+        private bool useAbsolutePath = false;
+        private string absoluteParentDirectory = string.Empty;
+        private string previousRootPath = string.Empty;
+        private List<string> recentRootPaths = new List<string>();
+        private string sessionOriginalRoot = string.Empty;
         private List<string> presets = new List<string>
         {
             "Downloads",
@@ -478,6 +637,11 @@ namespace CustomFolder
         private string quickAccessPreset = "Downloads";
 
         private string backupParentDirectory;
+        private bool backupUseAbsolutePath;
+        private string backupAbsoluteParentDirectory;
+        private string backupPreviousRootPath;
+        private List<string> backupRecentRootPaths;
+        private string backupResolvedRoot;
         private List<string> backupPresets;
         private bool backupQuickAccess;
         private string backupQuickAccessPreset;
@@ -487,6 +651,38 @@ namespace CustomFolder
             get => parentDirectory;
             set => SetValue(ref parentDirectory, value);
         }
+
+        public int PathSettingsVersion
+        {
+            get => pathSettingsVersion;
+            set => SetValue(ref pathSettingsVersion, value);
+        }
+
+        public bool UseAbsolutePath
+        {
+            get => useAbsolutePath;
+            set => SetValue(ref useAbsolutePath, value);
+        }
+
+        public string AbsoluteParentDirectory
+        {
+            get => absoluteParentDirectory;
+            set => SetValue(ref absoluteParentDirectory, value);
+        }
+
+        public string PreviousRootPath
+        {
+            get => previousRootPath;
+            set => SetValue(ref previousRootPath, value);
+        }
+
+        public List<string> RecentRootPaths
+        {
+            get => recentRootPaths;
+            set => SetValue(ref recentRootPaths, value ?? new List<string>());
+        }
+
+        internal string SessionOriginalRoot => sessionOriginalRoot;
 
         public List<string> Presets
         {
@@ -535,8 +731,69 @@ namespace CustomFolder
 
             if (saved != null)
             {
-                if (!string.IsNullOrWhiteSpace(saved.ParentDirectory))
-                    ParentDirectory = saved.ParentDirectory;
+                var savedParentDirectory = saved.ParentDirectory ?? string.Empty;
+                var savedVersion = saved.PathSettingsVersion;
+
+                UseAbsolutePath = saved.UseAbsolutePath;
+                AbsoluteParentDirectory = saved.AbsoluteParentDirectory ?? string.Empty;
+                PreviousRootPath = saved.PreviousRootPath ?? string.Empty;
+                RecentRootPaths = saved.RecentRootPaths?.ToList() ?? new List<string>();
+
+                if (savedVersion < CurrentPathSettingsVersion && !UseAbsolutePath)
+                {
+                    // Old layout:
+                    //   {PlayniteDir}\CustomFolder\{ParentDirectory}
+                    //
+                    // New layout:
+                    //   {PlayniteDir}\{ParentDirectory}\CustomFolder
+                    //
+                    // Preserve the OLD resolved folder as Migration's source,
+                    // then convert the setting when the old resolved location
+                    // already ended with "CustomFolder".
+                    try
+                    {
+                        var oldBase = IOPath.Combine(plugin.GetPlayniteDirectory(), "CustomFolder");
+                        var oldRelative = plugin.GetRootPart(savedParentDirectory);
+                        var oldResolved = string.IsNullOrWhiteSpace(oldRelative)
+                            ? IOPath.GetFullPath(oldBase)
+                            : IOPath.GetFullPath(IOPath.Combine(oldBase, oldRelative));
+
+                        if (string.IsNullOrWhiteSpace(PreviousRootPath))
+                            PreviousRootPath = oldResolved;
+
+                        if (string.Equals(
+                            IOPath.GetFileName(oldResolved.TrimEnd('\\', '/')),
+                            "CustomFolder",
+                            StringComparison.OrdinalIgnoreCase))
+                        {
+                            var newParent = IOPath.GetDirectoryName(
+                                oldResolved.TrimEnd('\\', '/'));
+
+                            ParentDirectory = MakeRelativeToPlaynite(
+                                plugin.GetPlayniteDirectory(),
+                                newParent);
+                        }
+                        else
+                        {
+                            // The old custom root did not itself end in CustomFolder,
+                            // so there is no exact representation in the new model.
+                            // Start at the new recommended location and let Migration
+                            // use PreviousRootPath as the old source.
+                            ParentDirectory = "..\\";
+                        }
+                    }
+                    catch
+                    {
+                        ParentDirectory = "..\\";
+                    }
+
+                    PathSettingsVersion = CurrentPathSettingsVersion;
+                }
+                else
+                {
+                    ParentDirectory = savedParentDirectory;
+                    PathSettingsVersion = CurrentPathSettingsVersion;
+                }
 
                 if (saved.Presets != null && saved.Presets.Count > 0)
                 {
@@ -548,19 +805,90 @@ namespace CustomFolder
                 if (!string.IsNullOrWhiteSpace(saved.QuickAccessPreset))
                     QuickAccessPreset = saved.QuickAccessPreset;
             }
+
+            try
+            {
+                // This is only the currently SAVED root when the addon loads.
+                // Do not write it into PreviousRootPath here. Path history is
+                // committed only from Playnite's built-in Save -> EndEdit().
+                sessionOriginalRoot = plugin.ResolveCurrentRoot(this);
+            }
+            catch
+            {
+                sessionOriginalRoot = string.Empty;
+            }
+        }
+
+        internal void RecordSuccessfulRootChange(string oldRoot, string newRoot)
+        {
+            if (string.IsNullOrWhiteSpace(oldRoot) ||
+                string.IsNullOrWhiteSpace(newRoot) ||
+                plugin.IsSamePath(oldRoot, newRoot))
+                return;
+
+            PreviousRootPath = oldRoot;
+
+            var history = (RecentRootPaths ?? new List<string>())
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Where(p => !plugin.IsSamePath(p, oldRoot))
+                .ToList();
+
+            history.Insert(0, oldRoot);
+            RecentRootPaths = history.Take(3).ToList();
+        }
+
+        private static string MakeRelativeToPlaynite(string playniteDirectory, string targetDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(targetDirectory))
+                return string.Empty;
+
+            var playnite = IOPath.GetFullPath(playniteDirectory).TrimEnd('\\') + "\\";
+            var target = IOPath.GetFullPath(targetDirectory).TrimEnd('\\') + "\\";
+
+            var relative = Uri.UnescapeDataString(
+                new Uri(playnite).MakeRelativeUri(new Uri(target)).ToString())
+                .Replace('/', '\\');
+
+            if (relative == "." || relative == ".\\")
+                return string.Empty;
+
+            return relative.EndsWith("\\", StringComparison.Ordinal)
+                ? relative
+                : relative + "\\";
         }
 
         public void BeginEdit()
         {
             backupParentDirectory = ParentDirectory;
+            backupUseAbsolutePath = UseAbsolutePath;
+            backupAbsoluteParentDirectory = AbsoluteParentDirectory;
+            backupPreviousRootPath = PreviousRootPath;
+            backupRecentRootPaths = RecentRootPaths?.ToList() ?? new List<string>();
             backupPresets = Presets.ToList();
             backupQuickAccess = EnableQuickAccessButton;
             backupQuickAccessPreset = QuickAccessPreset;
+
+            try
+            {
+                // Playnite calls BeginEdit when the settings session starts.
+                // This is the root that was actually saved before the user edits it.
+                backupResolvedRoot = plugin.ResolveCurrentRoot(this);
+                sessionOriginalRoot = backupResolvedRoot;
+            }
+            catch
+            {
+                backupResolvedRoot = string.Empty;
+            }
         }
 
         public void CancelEdit()
         {
             ParentDirectory = backupParentDirectory;
+            UseAbsolutePath = backupUseAbsolutePath;
+            AbsoluteParentDirectory = backupAbsoluteParentDirectory;
+            PreviousRootPath = backupPreviousRootPath;
+            RecentRootPaths = backupRecentRootPaths?.ToList() ?? new List<string>();
+            sessionOriginalRoot = backupResolvedRoot;
             Presets = backupPresets?.ToList() ?? new List<string>();
             EnableQuickAccessButton = backupQuickAccess;
             QuickAccessPreset = backupQuickAccessPreset;
@@ -578,6 +906,29 @@ namespace CustomFolder
                 QuickAccessPreset = Presets[0];
             }
 
+            try
+            {
+                var newRoot = plugin.ResolveCurrentRoot(this);
+
+                // IMPORTANT:
+                // Playnite's built-in Save calls EndEdit().
+                // Only a successful Save commits the previous path/history.
+                if (!string.IsNullOrWhiteSpace(backupResolvedRoot) &&
+                    !plugin.IsSamePath(backupResolvedRoot, newRoot))
+                {
+                    RecordSuccessfulRootChange(backupResolvedRoot, newRoot);
+                }
+
+                // The just-saved root becomes the next settings session baseline.
+                sessionOriginalRoot = newRoot;
+                backupResolvedRoot = newRoot;
+            }
+            catch
+            {
+                // VerifySettings reports invalid paths before EndEdit is accepted.
+            }
+
+            PathSettingsVersion = CurrentPathSettingsVersion;
             plugin.SavePluginSettings(this);
         }
 
@@ -590,7 +941,10 @@ namespace CustomFolder
                 ParentDirectory =
                     plugin.NormalizeParentDirectoryForDisplay(ParentDirectory);
 
-                plugin.ResolveRoot(ParentDirectory);
+                if (UseAbsolutePath)
+                    plugin.ResolveAbsoluteRoot(AbsoluteParentDirectory);
+                else
+                    plugin.ResolveRoot(ParentDirectory);
             }
             catch (Exception ex)
             {
@@ -650,9 +1004,21 @@ namespace CustomFolder
         private readonly CustomFolderPlugin plugin;
 
         private TextBox parentBox;
+        private TextBox absoluteParentBox;
         private Button parentEditButton;
+        private Button resetRelativeButton;
+        private Button browseAbsoluteButton;
+        private Button relativeModeButton;
+        private Button absoluteModeButton;
+        private TextBlock relativeModeTitle;
+        private TextBlock relativeModeNote;
+        private TextBlock absoluteModeTitle;
         private TextBlock previewText;
         private TextBlock safetyText;
+        private TextBlock changedPathWarning;
+        private TextBlock migrationSourceText;
+        private TextBlock migrationSourceWarning;
+        private string migrationSourceOverride;
 
         private ListBox presetList;
         private TextBox presetNameBox;
@@ -691,7 +1057,16 @@ namespace CustomFolder
             {
                 Text = "Create organized per-game folders using configurable presets.",
                 Opacity = 0.72,
-                Margin = new Thickness(0, 4, 0, 12)
+                Margin = new Thickness(0, 4, 0, 4)
+            });
+
+            root.Children.Add(new TextBlock
+            {
+                Text = "Disclaimer: CustomFolder is not a backup. Files stored here can still be deleted, lost, or corrupted.",
+                Foreground = Brushes.Red,
+                Opacity = 0.82,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 12)
             });
 
             // Preview kept directly above Root with a smaller gap.
@@ -720,164 +1095,263 @@ namespace CustomFolder
 
             var storage = new StackPanel();
 
-            // Parent Directory + dynamic warning on the same line.
-            var labelRow = new DockPanel
+            storage.Children.Add(new TextBlock
             {
-                LastChildFill = true,
-                Margin = new Thickness(0, 0, 0, 7)
-            };
-
-            var parentLabel = new TextBlock
-            {
-                Text = "Parent Directory",
-                FontWeight = FontWeights.SemiBold
-            };
-
-            DockPanel.SetDock(parentLabel, Dock.Left);
-            labelRow.Children.Add(parentLabel);
-
-            safetyText = new TextBlock
-            {
-                Margin = new Thickness(12, 0, 0, 0),
+                Text = "Path type",
                 FontWeight = FontWeights.SemiBold,
-                TextWrapping = TextWrapping.Wrap
-            };
-
-            labelRow.Children.Add(safetyText);
-            storage.Children.Add(labelRow);
-
-            // Fixed base + editable suffix + Edit button.
-            var pathRow = new Grid();
-
-            pathRow.ColumnDefinitions.Add(new ColumnDefinition
-            {
-                Width = GridLength.Auto
+                Margin = new Thickness(0, 0, 0, 8)
             });
 
-            pathRow.ColumnDefinitions.Add(new ColumnDefinition
+            relativeModeTitle = new TextBlock
             {
-                Width = new GridLength(1, GridUnitType.Star)
-            });
-
-            pathRow.ColumnDefinitions.Add(new ColumnDefinition
-            {
-                Width = GridLength.Auto
-            });
-
-            var basePath = new Border
-            {
-                Padding = new Thickness(8, 5, 8, 5),
-                Margin = new Thickness(0, 0, 6, 0),
+                Text = "Relative to Playnite directory",
                 VerticalAlignment = VerticalAlignment.Center,
-                Child = new TextBlock
-                {
-                    Text = "{PlayniteDir}\\CustomFolder\\",
-                    FontFamily = new FontFamily("Consolas"),
-                    VerticalAlignment = VerticalAlignment.Center
-                }
+                HorizontalAlignment = HorizontalAlignment.Left
             };
 
-            Grid.SetColumn(basePath, 0);
-            pathRow.Children.Add(basePath);
+            relativeModeNote = new TextBlock
+            {
+                Text = "Recommended for portability",
+                Opacity = 0.48,
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
+
+            var relativeModeContent = new Grid();
+            relativeModeContent.ColumnDefinitions.Add(
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            relativeModeContent.ColumnDefinitions.Add(
+                new ColumnDefinition { Width = GridLength.Auto });
+
+            Grid.SetColumn(relativeModeTitle, 0);
+            Grid.SetColumn(relativeModeNote, 1);
+
+            relativeModeContent.Children.Add(relativeModeTitle);
+            relativeModeContent.Children.Add(relativeModeNote);
+
+            relativeModeButton = new Button
+            {
+                Content = relativeModeContent,
+                MinHeight = 34,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Padding = new Thickness(10, 5, 10, 5),
+                Margin = new Thickness(0, 0, 0, 6)
+            };
+            relativeModeButton.Click += (s, e) =>
+            {
+                if (CurrentSettings != null)
+                    CurrentSettings.UseAbsolutePath = false;
+
+                UpdatePathModeUi();
+                UpdatePreview();
+            };
+            storage.Children.Add(relativeModeButton);
+
+            var relativeRow = new Grid
+            {
+                Margin = new Thickness(20, 0, 0, 14)
+            };
+
+            relativeRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            relativeRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            relativeRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            relativeRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            relativeRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var prefix = new TextBlock
+            {
+                Text = "{PlayniteDir}\\",
+                FontFamily = new FontFamily("Consolas"),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0)
+            };
+            Grid.SetColumn(prefix, 0);
+            relativeRow.Children.Add(prefix);
 
             parentBox = new TextBox
             {
                 Height = 30,
-                MinWidth = 280,
-                IsReadOnly = true,
-                Opacity = 0.55,
+                MinWidth = 260,
                 VerticalContentAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 8, 0),
-                ToolTip = "Optional relative folder inserted after CustomFolder."
+                Margin = new Thickness(0, 0, 6, 0),
+                ToolTip = "Parent path relative to the Playnite directory."
             };
-
             parentBox.SetBinding(TextBox.TextProperty, new Binding("ParentDirectory")
             {
                 Mode = BindingMode.TwoWay,
                 UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
             });
-
             parentBox.TextChanged += (s, e) => UpdatePreview();
-
-            parentBox.KeyDown += (s, e) =>
-            {
-                if (e.Key == System.Windows.Input.Key.Enter)
-                {
-                    SetParentEditMode(false);
-                    e.Handled = true;
-                }
-                else if (e.Key == System.Windows.Input.Key.Escape)
-                {
-                    SetParentEditMode(false);
-                    e.Handled = true;
-                }
-            };
-
             Grid.SetColumn(parentBox, 1);
-            pathRow.Children.Add(parentBox);
+            relativeRow.Children.Add(parentBox);
+
+            var relativeSuffix = new TextBlock
+            {
+                Text = "\\CustomFolder\\",
+                FontFamily = new FontFamily("Consolas"),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            Grid.SetColumn(relativeSuffix, 2);
+            relativeRow.Children.Add(relativeSuffix);
 
             parentEditButton = new Button
             {
-                Content = "Edit",
+                Content = "Browse",
+                MinWidth = 70,
+                Height = 30,
+                Margin = new Thickness(0, 0, 6, 0)
+            };
+            parentEditButton.Click += BrowseRelative_Click;
+            Grid.SetColumn(parentEditButton, 3);
+            relativeRow.Children.Add(parentEditButton);
+
+            resetRelativeButton = new Button
+            {
+                Content = "Reset",
+                MinWidth = 70,
+                Height = 30,
+                ToolTip = "Reset to {PlayniteDir}\\..\\CustomFolder\\"
+            };
+            resetRelativeButton.Click += ResetRelative_Click;
+            Grid.SetColumn(resetRelativeButton, 4);
+            relativeRow.Children.Add(resetRelativeButton);
+
+            storage.Children.Add(relativeRow);
+
+            // Absolute option
+            absoluteModeTitle = new TextBlock
+            {
+                Text = "Absolute path",
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            absoluteModeButton = new Button
+            {
+                Content = absoluteModeTitle,
+                MinHeight = 34,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Padding = new Thickness(10, 5, 10, 5),
+                Margin = new Thickness(0, 0, 0, 6)
+            };
+            absoluteModeButton.Click += (s, e) =>
+            {
+                if (CurrentSettings != null)
+                    CurrentSettings.UseAbsolutePath = true;
+
+                UpdatePathModeUi();
+                UpdatePreview();
+            };
+            storage.Children.Add(absoluteModeButton);
+
+            var absoluteRow = new Grid
+            {
+                Margin = new Thickness(20, 0, 0, 10)
+            };
+
+            absoluteRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            absoluteRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            absoluteRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            absoluteParentBox = new TextBox
+            {
+                Height = 30,
+                MinWidth = 420,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0),
+                ToolTip = "Absolute parent directory. CustomFolder is appended automatically."
+            };
+            absoluteParentBox.SetBinding(TextBox.TextProperty, new Binding("AbsoluteParentDirectory")
+            {
+                Mode = BindingMode.TwoWay,
+                UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
+            });
+            absoluteParentBox.TextChanged += (s, e) => UpdatePreview();
+            Grid.SetColumn(absoluteParentBox, 0);
+            absoluteRow.Children.Add(absoluteParentBox);
+
+            var absoluteSuffix = new TextBlock
+            {
+                Text = "\\CustomFolder\\",
+                FontFamily = new FontFamily("Consolas"),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            Grid.SetColumn(absoluteSuffix, 1);
+            absoluteRow.Children.Add(absoluteSuffix);
+
+            browseAbsoluteButton = new Button
+            {
+                Content = "Browse",
                 MinWidth = 70,
                 Height = 30
             };
+            browseAbsoluteButton.Click += BrowseAbsolute_Click;
+            Grid.SetColumn(browseAbsoluteButton, 2);
+            absoluteRow.Children.Add(browseAbsoluteButton);
 
-            parentEditButton.Click += (s, e) =>
+            storage.Children.Add(absoluteRow);
+
+            changedPathWarning = new TextBlock
             {
-                SetParentEditMode(parentBox.IsReadOnly);
+                Foreground = Brushes.Orange,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 5, 0, 6),
+                Visibility = Visibility.Collapsed
             };
+            storage.Children.Add(changedPathWarning);
 
-            Grid.SetColumn(parentEditButton, 2);
-            pathRow.Children.Add(parentEditButton);
-
-            storage.Children.Add(pathRow);
-
-            // Friendly notes with clearer spacing.
-            var notePanel = new StackPanel
+            safetyText = new TextBlock
             {
-                Margin = new Thickness(0, 12, 0, 0)
+                Foreground = Brushes.Red,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 6)
             };
+            storage.Children.Add(safetyText);
 
-            notePanel.Children.Add(new TextBlock
+            var migrationPanel = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
+            migrationPanel.Children.Add(new Separator { Margin = new Thickness(0, 0, 0, 10) });
+            migrationPanel.Children.Add(new TextBlock
             {
-                Text = "How this path works",
+                Text = "Migrate Existing Files",
                 FontWeight = FontWeights.SemiBold,
                 Margin = new Thickness(0, 0, 0, 6)
             });
 
-            notePanel.Children.Add(new TextBlock
+            migrationSourceText = new TextBlock
             {
-                Text = "• {PlayniteDir} means your current Playnite folder: [" + plugin.GetPlayniteDirectoryDisplay() + "]",
-                Opacity = 0.9,
-                Margin = new Thickness(0, 2, 0, 7),
-                TextWrapping = TextWrapping.Wrap
-            });
+                FontFamily = new FontFamily("Consolas"),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 4)
+            };
+            migrationPanel.Children.Add(migrationSourceText);
 
-            notePanel.Children.Add(new TextBlock
+            migrationSourceWarning = new TextBlock
             {
-                Text = "• CustomFolder is always added automatically. The Edit field only controls what comes after CustomFolder and before the preset.",
-                Opacity = 0.78,
-                Margin = new Thickness(0, 0, 0, 7),
-                TextWrapping = TextWrapping.Wrap
-            });
+                Foreground = Brushes.Red,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            migrationPanel.Children.Add(migrationSourceWarning);
 
-            notePanel.Children.Add(new TextBlock
+            var migrationButtons = new StackPanel { Orientation = Orientation.Horizontal };
+
+            var browseSource = new Button
             {
-                Text = "• Leave the Edit field empty to use the base folder: {PlayniteDir}\\CustomFolder\\",
-                Opacity = 0.78,
-                Margin = new Thickness(0, 0, 0, 7),
-                TextWrapping = TextWrapping.Wrap
-            });
+                Content = "Browse Source...",
+                MinWidth = 110,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            browseSource.Click += BrowseMigrationSource_Click;
 
-            notePanel.Children.Add(new TextBlock
-            {
-                Text = "• Relative navigation is supported: ..\\ goes back 1 folder, ..\\..\\ goes back 2 folders, and so on. A folder name after it is optional.",
-                Opacity = 0.78,
-                TextWrapping = TextWrapping.Wrap
-            });
+            var migrate = new Button { Content = "Migrate", MinWidth = 90 };
+            migrate.Click += Migrate_Click;
 
-            storage.Children.Add(notePanel);
+            migrationButtons.Children.Add(browseSource);
+            migrationButtons.Children.Add(migrate);
+            migrationPanel.Children.Add(migrationButtons);
+            storage.Children.Add(migrationPanel);
 
             storageGroup.Content = storage;
             root.Children.Add(storageGroup);
@@ -1091,100 +1565,357 @@ namespace CustomFolder
             {
                 RefreshPresetList();
                 RefreshQuickAccessPresets();
-                NormalizeParentBox();
-                SetParentEditMode(false);
+                UpdatePathModeUi();
                 UpdatePreview();
             };
         }
 
-        private void SetParentEditMode(bool editing)
+        private void UpdatePathModeUi()
         {
-            if (parentBox == null)
+            if (CurrentSettings == null) return;
+
+            var absolute = CurrentSettings.UseAbsolutePath;
+
+            if (relativeModeButton != null)
             {
-                return;
+                relativeModeButton.Opacity = absolute ? 0.52 : 1.0;
             }
 
-            if (editing)
+            if (relativeModeTitle != null)
             {
-                parentBox.IsReadOnly = false;
-                parentBox.Opacity = 1.0;
-
-                if (parentEditButton != null)
-                {
-                    parentEditButton.Content = "Done";
-                }
-
-                parentBox.Focus();
-                parentBox.CaretIndex = parentBox.Text.Length;
+                relativeModeTitle.FontWeight =
+                    absolute ? FontWeights.Normal : FontWeights.SemiBold;
             }
-            else
+
+            if (relativeModeNote != null)
             {
-                NormalizeParentBox();
+                // Keep the recommendation visually secondary even when selected.
+                relativeModeNote.Opacity = absolute ? 0.30 : 0.48;
+            }
 
-                parentBox.IsReadOnly = true;
-                parentBox.Opacity = 0.55;
+            if (absoluteModeButton != null)
+            {
+                absoluteModeButton.Opacity = absolute ? 1.0 : 0.52;
+            }
 
-                if (parentEditButton != null)
+            if (absoluteModeTitle != null)
+            {
+                absoluteModeTitle.FontWeight =
+                    absolute ? FontWeights.SemiBold : FontWeights.Normal;
+            }
+
+            if (parentBox != null) parentBox.IsEnabled = !absolute;
+            if (parentEditButton != null) parentEditButton.IsEnabled = !absolute;
+            if (resetRelativeButton != null) resetRelativeButton.IsEnabled = !absolute;
+
+            if (absoluteParentBox != null) absoluteParentBox.IsEnabled = absolute;
+            if (browseAbsoluteButton != null) browseAbsoluteButton.IsEnabled = absolute;
+        }
+
+        private void ResetRelative_Click(object sender, RoutedEventArgs e)
+        {
+            if (CurrentSettings == null) return;
+
+            CurrentSettings.ParentDirectory = "..\\";
+
+            if (parentBox != null)
+                parentBox.Text = "..\\";
+
+            UpdatePreview();
+        }
+
+        private void BrowseRelative_Click(object sender, RoutedEventArgs e)
+        {
+            var selected = plugin.PlayniteApi.Dialogs.SelectFolder();
+            if (string.IsNullOrWhiteSpace(selected)) return;
+
+            try
+            {
+                var playnite = IOPath.GetFullPath(plugin.GetPlayniteDirectory()).TrimEnd('\\') + "\\";
+                var chosen = IOPath.GetFullPath(selected).TrimEnd('\\') + "\\";
+                var relative = Uri.UnescapeDataString(
+                    new Uri(playnite).MakeRelativeUri(new Uri(chosen)).ToString())
+                    .Replace('/', '\\');
+
+                if (relative == "." || relative == ".\\")
                 {
-                    parentEditButton.Content = "Edit";
+                    CurrentSettings.ParentDirectory = string.Empty;
+                }
+                else
+                {
+                    CurrentSettings.ParentDirectory =
+                        relative.EndsWith("\\", StringComparison.Ordinal)
+                            ? relative
+                            : relative + "\\";
                 }
 
-                UpdatePreview();
+                parentBox.Text = CurrentSettings.ParentDirectory;
+            }
+            catch (Exception ex)
+            {
+                plugin.PlayniteApi.Dialogs.ShowErrorMessage(
+                    "Could not create a Playnite-relative path.\n\n" + ex.Message,
+                    "CustomFolder");
             }
         }
 
-        private void NormalizeParentBox()
+        private void BrowseAbsolute_Click(object sender, RoutedEventArgs e)
         {
-            try
-            {
-                var normalized =
-                    plugin.NormalizeParentDirectoryForDisplay(parentBox.Text);
+            var selected = plugin.PlayniteApi.Dialogs.SelectFolder();
+            if (string.IsNullOrWhiteSpace(selected)) return;
 
-                if (parentBox.Text != normalized)
+            CurrentSettings.AbsoluteParentDirectory = selected;
+            absoluteParentBox.Text = selected;
+        }
+
+        private string GetRecordedMigrationCandidate()
+        {
+            // A real previous path committed by Playnite Save has first priority.
+            if (!string.IsNullOrWhiteSpace(CurrentSettings?.PreviousRootPath) &&
+                Directory.Exists(CurrentSettings.PreviousRootPath))
+            {
+                return CurrentSettings.PreviousRootPath;
+            }
+
+            // If an older/broken build left a stale PreviousRootPath, use the
+            // path that was actually saved when this settings session opened.
+            if (!string.IsNullOrWhiteSpace(CurrentSettings?.SessionOriginalRoot))
+                return CurrentSettings.SessionOriginalRoot;
+
+            // Keep the stale value only as diagnostic information if nothing
+            // better is available.
+            if (!string.IsNullOrWhiteSpace(CurrentSettings?.PreviousRootPath))
+                return CurrentSettings.PreviousRootPath;
+
+            return null;
+        }
+
+        private string GetMigrationSource()
+        {
+            // A manually selected source is only trusted while it still exists.
+            if (!string.IsNullOrWhiteSpace(migrationSourceOverride) &&
+                Directory.Exists(migrationSourceOverride))
+            {
+                return migrationSourceOverride;
+            }
+
+            var candidate = GetRecordedMigrationCandidate();
+
+            // Never present an invented/stale path as a valid migration source.
+            if (!string.IsNullOrWhiteSpace(candidate) &&
+                Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            // Check recent recorded roots as a small fallback history.
+            foreach (var recent in CurrentSettings?.RecentRootPaths ?? new List<string>())
+            {
+                if (!string.IsNullOrWhiteSpace(recent) &&
+                    Directory.Exists(recent))
                 {
-                    parentBox.Text = normalized;
-                    parentBox.CaretIndex = parentBox.Text.Length;
+                    return recent;
                 }
             }
-            catch
+
+            return null;
+        }
+
+        private void BrowseMigrationSource_Click(object sender, RoutedEventArgs e)
+        {
+            var selected = plugin.PlayniteApi.Dialogs.SelectFolder();
+            if (string.IsNullOrWhiteSpace(selected)) return;
+
+            string detected;
+            try
             {
-                // Final validation happens when settings are saved.
+                detected = plugin.DetectCustomFolder(selected);
+            }
+            catch (Exception ex)
+            {
+                plugin.PlayniteApi.Dialogs.ShowErrorMessage(
+                    "Could not inspect that location.\n\n" + ex.Message,
+                    "CustomFolder Migration");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(detected))
+            {
+                plugin.PlayniteApi.Dialogs.ShowMessage(
+                    "No CustomFolder was detected there.\n\n" +
+                    "Select either the CustomFolder itself or the folder containing it.",
+                    "CustomFolder Migration");
+                return;
+            }
+
+            migrationSourceOverride = detected;
+            UpdatePreview();
+        }
+
+        private void Migrate_Click(object sender, RoutedEventArgs e)
+        {
+            var source = GetMigrationSource();
+            string destination;
+
+            try
+            {
+                destination = plugin.ResolveCurrentRoot(CurrentSettings);
+            }
+            catch (Exception ex)
+            {
+                plugin.PlayniteApi.Dialogs.ShowErrorMessage(
+                    "Destination path is invalid.\n\n" + ex.Message,
+                    "CustomFolder Migration");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(source) || !Directory.Exists(source))
+            {
+                plugin.PlayniteApi.Dialogs.ShowMessage(
+                    "No existing migration source was detected.\n\n" +
+                    "The saved old path does not exist, or is no longer available. " +
+                    "Use Browse Source to choose the correct old CustomFolder location.",
+                    "CustomFolder Migration");
+                return;
+            }
+
+            if (plugin.IsSamePath(source, destination))
+            {
+                plugin.PlayniteApi.Dialogs.ShowMessage(
+                    "Source and destination are the same. Nothing needs to be migrated.",
+                    "CustomFolder Migration");
+                return;
+            }
+
+            var crossDrive = !string.Equals(
+                IOPath.GetPathRoot(source),
+                IOPath.GetPathRoot(destination),
+                StringComparison.OrdinalIgnoreCase);
+
+            var message =
+                "Migrate existing files?\n\n" +
+                "Source:\n" + source + "\n\n" +
+                "Destination:\n" + destination + "\n\n" +
+                "Existing destination files will NOT be overwritten.";
+
+            if (crossDrive)
+                message += "\n\nThis crosses drives, so files will be copied and then removed from the old location.";
+
+            var confirm = MessageBox.Show(
+                message,
+                "CustomFolder Migration",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (confirm != MessageBoxResult.Yes) return;
+
+            try
+            {
+                var result = plugin.MigrateFolder(source, destination);
+
+                CurrentSettings.RecordSuccessfulRootChange(source, destination);
+                migrationSourceOverride = null;
+
+                plugin.PlayniteApi.Dialogs.ShowMessage(
+                    "Migration complete.\n\n" +
+                    "Moved files: " + result.MovedFiles + "\n" +
+                    "Skipped existing files: " + result.SkippedFiles +
+                    (result.SkippedFiles > 0
+                        ? "\n\nSkipped files remain in the old location."
+                        : string.Empty),
+                    "CustomFolder Migration");
+
+                UpdatePreview();
+            }
+            catch (Exception ex)
+            {
+                plugin.PlayniteApi.Dialogs.ShowErrorMessage(
+                    "Migration failed.\n\n" + ex.Message,
+                    "CustomFolder Migration");
             }
         }
 
         private void UpdatePreview()
         {
-            if (parentBox == null || previewText == null)
-            {
-                return;
-            }
+            if (previewText == null || CurrentSettings == null) return;
 
             var preset =
                 presetList?.SelectedItem?.ToString()
-                ?? CurrentSettings?.Presets?.FirstOrDefault()
+                ?? CurrentSettings.Presets?.FirstOrDefault()
                 ?? "Downloads";
 
-            previewText.Text =
-                plugin.ResolveExamplePath(parentBox.Text, preset);
+            string currentRoot = null;
 
-            if (safetyText != null)
+            try
             {
-                var level = plugin.GetSafetyLevel(parentBox.Text);
-                safetyText.Text = plugin.GetSafetyText(parentBox.Text);
+                currentRoot = plugin.ResolveCurrentRoot(CurrentSettings);
+                previewText.Text = IOPath.Combine(
+                    currentRoot,
+                    CustomFolderPlugin.MakeSafeFolderName(preset),
+                    "Ghost of Tsushima");
 
-                if (string.IsNullOrWhiteSpace(safetyText.Text))
+                safetyText.Text = plugin.IsInsidePlayniteDirectory(currentRoot)
+                    ? "Playnite 11 warning: this CustomFolder is inside the Playnite directory. Move it outside Playnite before updating to avoid possible data loss."
+                    : string.Empty;
+            }
+            catch (Exception ex)
+            {
+                previewText.Text = "Invalid path";
+                safetyText.Text = "Invalid directory: " + ex.Message;
+            }
+
+            var oldRoot = GetMigrationSource();
+            var recordedCandidate = GetRecordedMigrationCandidate();
+
+            if (!string.IsNullOrWhiteSpace(currentRoot) &&
+                !string.IsNullOrWhiteSpace(recordedCandidate) &&
+                !plugin.IsSamePath(currentRoot, recordedCandidate))
+            {
+                changedPathWarning.Visibility = Visibility.Visible;
+
+                if (Directory.Exists(recordedCandidate))
                 {
-                    safetyText.Foreground = Brushes.Transparent;
-                }
-                else if (level == 1)
-                {
-                    safetyText.Foreground = Brushes.Orange;
+                    changedPathWarning.Text =
+                        "You changed the CustomFolder path. Use Migrate to avoid leaving files behind.\n" +
+                        "Old path: " + recordedCandidate;
                 }
                 else
                 {
-                    safetyText.Foreground = Brushes.Red;
+                    changedPathWarning.Text =
+                        "The saved old CustomFolder path could not be found. " +
+                        "Use Browse Source in Migrate if your files are somewhere else.\n" +
+                        "Recorded old path: " + recordedCandidate;
                 }
             }
+            else
+            {
+                changedPathWarning.Visibility = Visibility.Collapsed;
+            }
+
+            if (!string.IsNullOrWhiteSpace(oldRoot))
+            {
+                migrationSourceText.Text =
+                    "Source: " + oldRoot +
+                    "\nDestination: " +
+                    (string.IsNullOrWhiteSpace(currentRoot) ? "Invalid path" : currentRoot);
+            }
+            else
+            {
+                migrationSourceText.Text =
+                    "Source: Not detected" +
+                    (!string.IsNullOrWhiteSpace(recordedCandidate)
+                        ? "\nRecorded old path (not found): " + recordedCandidate
+                        : string.Empty) +
+                    "\nDestination: " +
+                    (string.IsNullOrWhiteSpace(currentRoot) ? "Invalid path" : currentRoot);
+            }
+
+            migrationSourceWarning.Text =
+                !string.IsNullOrWhiteSpace(oldRoot) && plugin.IsInsidePlayniteDirectory(oldRoot)
+                ? "Playnite 11 warning: this migration source is inside the Playnite directory."
+                : string.Empty;
+
+            UpdatePathModeUi();
         }
 
         private void AddPreset_Click(object sender, RoutedEventArgs e)

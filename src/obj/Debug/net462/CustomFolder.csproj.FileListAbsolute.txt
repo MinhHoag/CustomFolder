@@ -9,3 +9,15 @@ C:\Users\dhhmi\Personal\Downloads\CustomFolder_Playnite_v1.4.2_source\CustomFold
 C:\Users\dhhmi\Personal\Downloads\CustomFolder_Playnite_v1.4.2_source\CustomFolder_v1_4_2\src\obj\Debug\net462\CustomFolder.csproj.CopyComplete
 C:\Users\dhhmi\Personal\Downloads\CustomFolder_Playnite_v1.4.2_source\CustomFolder_v1_4_2\src\obj\Debug\net462\CustomFolder.dll
 C:\Users\dhhmi\Personal\Downloads\CustomFolder_Playnite_v1.4.2_source\CustomFolder_v1_4_2\src\obj\Debug\net462\CustomFolder.pdb
+C:\Users\dhhmi\Personal\Coding\CustomFolder\src\obj\Debug\net462\CustomFolder.csproj.AssemblyReference.cache
+C:\Users\dhhmi\Personal\Coding\CustomFolder\src\obj\Debug\net462\CustomFolder.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\dhhmi\Personal\Coding\CustomFolder\src\obj\Debug\net462\CustomFolder.AssemblyInfoInputs.cache
+C:\Users\dhhmi\Personal\Coding\CustomFolder\src\obj\Debug\net462\CustomFolder.AssemblyInfo.cs
+C:\Users\dhhmi\Personal\Coding\CustomFolder\src\obj\Debug\net462\CustomFolder.csproj.CoreCompileInputs.cache
+C:\Users\dhhmi\Personal\Coding\CustomFolder\src\obj\Debug\net462\CustomFolder.sourcelink.json
+C:\Users\dhhmi\Personal\Coding\CustomFolder\src\obj\Debug\net462\CustomFolder.dll
+C:\Users\dhhmi\Personal\Coding\CustomFolder\src\obj\Debug\net462\CustomFolder.pdb
+C:\Users\dhhmi\Personal\Coding\CustomFolder\src\bin\Debug\net462\CustomFolder.dll
+C:\Users\dhhmi\Personal\Coding\CustomFolder\src\bin\Debug\net462\CustomFolder.pdb
+C:\Users\dhhmi\Personal\Coding\CustomFolder\src\bin\Debug\net462\Playnite.SDK.dll
+C:\Users\dhhmi\Personal\Coding\CustomFolder\src\obj\Debug\net462\CustomFolder.csproj.CopyComplete
