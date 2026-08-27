@@ -20,6 +20,7 @@ namespace CustomFolder
     {
         private const string DeveloperUnlockCode = "MinhHoang";
         private const string PlayniteToken = "{PlayniteDir}";
+        private const long LargeFileThresholdBytes = 1L * 1024 * 1024 * 1024; // 1 GB
 
         public override Guid Id => Guid.Parse("7b4a1b34-6c57-4ef6-9d35-7e4e64b7c0a1");
         public CustomFolderSettings Settings { get; private set; }
@@ -530,19 +531,44 @@ namespace CustomFolder
                 return new MigrationResult { SourceFound = false };
 
             if (IsSamePath(source, destination))
-                return new MigrationResult { SourceFound = true, SameLocation = true, Destination = destination };
+                return new MigrationResult
+                {
+                    SourceFound = true,
+                    SameLocation = true,
+                    Destination = destination
+                };
 
-            var result = new MigrationResult { SourceFound = true, Destination = destination };
+            var sourceRoot = IOPath.GetPathRoot(source);
+            var destinationRoot = IOPath.GetPathRoot(destination);
+
+            var crossDrive = !string.Equals(
+                sourceRoot,
+                destinationRoot,
+                StringComparison.OrdinalIgnoreCase);
+
+            var result = new MigrationResult
+            {
+                SourceFound = true,
+                Destination = destination
+            };
+
             Directory.CreateDirectory(destination);
-            MergeDirectory(source, destination, result);
+            MergeDirectory(source, destination, result, crossDrive);
 
-            if (Directory.Exists(source) && !Directory.EnumerateFileSystemEntries(source).Any())
+            if (Directory.Exists(source) &&
+                !Directory.EnumerateFileSystemEntries(source).Any())
+            {
                 Directory.Delete(source);
+            }
 
             return result;
         }
 
-        private static void MergeDirectory(string source, string destination, MigrationResult result)
+        private static void MergeDirectory(
+            string source,
+            string destination,
+            MigrationResult result,
+            bool crossDrive)
         {
             Directory.CreateDirectory(destination);
 
@@ -556,14 +582,29 @@ namespace CustomFolder
                     continue;
                 }
 
-                try
-                {
-                    File.Move(file, target);
-                }
-                catch (IOException)
+                var fileInfo = new FileInfo(file);
+                var keepSourceCopy =
+                    crossDrive &&
+                    fileInfo.Length >= LargeFileThresholdBytes;
+
+                if (crossDrive)
                 {
                     File.Copy(file, target, false);
-                    File.Delete(file);
+
+                    if (keepSourceCopy)
+                    {
+                        // For large cross-drive copies, deliberately retain
+                        // the source file so the user has a safety copy.
+                        result.LargeFilesKeptAtSource++;
+                    }
+                    else
+                    {
+                        File.Delete(file);
+                    }
+                }
+                else
+                {
+                    File.Move(file, target);
                 }
 
                 result.MovedFiles++;
@@ -572,10 +613,13 @@ namespace CustomFolder
             foreach (var directory in Directory.GetDirectories(source))
             {
                 var target = IOPath.Combine(destination, IOPath.GetFileName(directory));
-                MergeDirectory(directory, target, result);
+                MergeDirectory(directory, target, result, crossDrive);
 
-                if (!Directory.EnumerateFileSystemEntries(directory).Any())
+                if (Directory.Exists(directory) &&
+                    !Directory.EnumerateFileSystemEntries(directory).Any())
+                {
                     Directory.Delete(directory);
+                }
             }
         }
 
@@ -610,6 +654,7 @@ namespace CustomFolder
         public bool SameLocation { get; set; }
         public int MovedFiles { get; set; }
         public int SkippedFiles { get; set; }
+        public int LargeFilesKeptAtSource { get; set; }
         public string Destination { get; set; }
     }
 
@@ -1018,6 +1063,7 @@ namespace CustomFolder
         private TextBlock changedPathWarning;
         private TextBlock migrationSourceText;
         private TextBlock migrationSourceWarning;
+        private TextBlock crossDriveWarning;
         private string migrationSourceOverride;
 
         private ListBox presetList;
@@ -1065,6 +1111,7 @@ namespace CustomFolder
                 Text = "Disclaimer: CustomFolder is not a backup. Files stored here can still be deleted, lost, or corrupted.",
                 Foreground = Brushes.Red,
                 Opacity = 0.82,
+                FontSize = 11,
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 12)
             });
@@ -1334,6 +1381,16 @@ namespace CustomFolder
                 Margin = new Thickness(0, 0, 0, 8)
             };
             migrationPanel.Children.Add(migrationSourceWarning);
+
+            crossDriveWarning = new TextBlock
+            {
+                Foreground = Brushes.Orange,
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 8),
+                Visibility = Visibility.Collapsed
+            };
+            migrationPanel.Children.Add(crossDriveWarning);
 
             var migrationButtons = new StackPanel { Orientation = Orientation.Horizontal };
 
@@ -1799,7 +1856,12 @@ namespace CustomFolder
                 "Existing destination files will NOT be overwritten.";
 
             if (crossDrive)
-                message += "\n\nThis crosses drives, so files will be copied and then removed from the old location.";
+            {
+                message +=
+                    "\n\nCross-drive migration detected." +
+                    "\nFiles smaller than 1 GB will be copied and then removed from the source." +
+                    "\nFiles 1 GB or larger will be copied but kept at the source as a safety copy.";
+            }
 
             var confirm = MessageBox.Show(
                 message,
@@ -1818,10 +1880,14 @@ namespace CustomFolder
 
                 plugin.PlayniteApi.Dialogs.ShowMessage(
                     "Migration complete.\n\n" +
-                    "Moved files: " + result.MovedFiles + "\n" +
-                    "Skipped existing files: " + result.SkippedFiles +
+                    "Moved/copied files: " + result.MovedFiles + "\n" +
+                    "Skipped existing files: " + result.SkippedFiles + "\n" +
+                    "Large files kept at source: " + result.LargeFilesKeptAtSource +
                     (result.SkippedFiles > 0
                         ? "\n\nSkipped files remain in the old location."
+                        : string.Empty) +
+                    (result.LargeFilesKeptAtSource > 0
+                        ? "\nLarge cross-drive files were intentionally kept at the source for safety."
                         : string.Empty),
                     "CustomFolder Migration");
 
@@ -1914,6 +1980,36 @@ namespace CustomFolder
                 !string.IsNullOrWhiteSpace(oldRoot) && plugin.IsInsidePlayniteDirectory(oldRoot)
                 ? "Playnite 11 warning: this migration source is inside the Playnite directory."
                 : string.Empty;
+
+            if (crossDriveWarning != null &&
+                !string.IsNullOrWhiteSpace(oldRoot) &&
+                !string.IsNullOrWhiteSpace(currentRoot))
+            {
+                var sourceRoot = IOPath.GetPathRoot(oldRoot);
+                var destinationRoot = IOPath.GetPathRoot(currentRoot);
+
+                var crossDrive = !string.Equals(
+                    sourceRoot,
+                    destinationRoot,
+                    StringComparison.OrdinalIgnoreCase);
+
+                if (crossDrive)
+                {
+                    crossDriveWarning.Visibility = Visibility.Visible;
+                    crossDriveWarning.Text =
+                        "Cross-drive migration: files 1 GB or larger will be copied and kept at the source for safety.";
+                }
+                else
+                {
+                    crossDriveWarning.Visibility = Visibility.Collapsed;
+                    crossDriveWarning.Text = string.Empty;
+                }
+            }
+            else if (crossDriveWarning != null)
+            {
+                crossDriveWarning.Visibility = Visibility.Collapsed;
+                crossDriveWarning.Text = string.Empty;
+            }
 
             UpdatePathModeUi();
         }

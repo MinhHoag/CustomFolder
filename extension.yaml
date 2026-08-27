@@ -1,11 +1,11 @@
 Id: CustomFolder_7b4a1b34-6c57-4ef6-9d35-7e4e64b7c0a1
 Name: CustomFolder
 Author: Mh
-Version: 1.1.0
+Version: 1.2.0
 Module: CustomFolder.dll
 Type: GenericPlugin
 Icon: icon.png
-Description: Creates and opens a modified folder in Playnite directory per-game, base directory is "{PlayniteDir}/CustomFolder/{preset}/[Game name]"
+Description: Creates and opens a modified folder in Playnite directory per-game, base directory is "{PlayniteDir}/../CustomFolder/{preset}/[Game name]"
 Links:
   - Name: GitHub
     Url: https://github.com/MinhHoag/CustomFolder
